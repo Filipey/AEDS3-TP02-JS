@@ -1,0 +1,11 @@
+{
+  "name": "TP02-JS-WS",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "csv": "^6.1.2",
+    "papaparse": "^5.3.2"
+  }
+}
