@@ -26,6 +26,7 @@ export class Graph {
         this.awayTeachers = []
         this.subjects = []
         this.teachers = []
+        this.subjectsData = []
         this.subjectsOffered = []
     }
 
@@ -59,7 +60,7 @@ export class Graph {
         this.edgesList = []
         this.awayTeachers = []
         this.subjectsData = []
-        this.totalOfSubjects = []
+        this.totalOfSubjects = 0
     }
 
     /**
@@ -121,22 +122,18 @@ export class Graph {
      *
      * @param filename name of the file in /dataset
      */
-    readTeachers(filename) {
+    async readTeachers(filename) {
 
-        fs.createReadStream(`./dataset/${filename}`)
-            .pipe(parse({ delimiter: ";", fromLine: 2}))
-            .on( 'data',   (row) => {
-                this.teachers.push(row[0])
-                this.subjectsOffered.push(row[1])
-                this.subjects.push(row.slice(2, 6))
-            })
-            .on('end', () => {
-                this.subjects.filter((subject) => {
-                    return subject !== ""
-                })
+        const parser = fs.createReadStream(`./dataset/${filename}`)
+            .pipe(parse({ delimiter: ";", fromLine: 2 }))
 
-                this.subjectsOffered.pop()
-            })
+        for await (const record of parser) {
+            console.log("RECORD: ", record)
+            this.teachers.push(record[0])
+            this.subjectsOffered.push(record[1])
+            this.subjects.push(record.slice(2, 6))
+        }
+
     }
 
     /**
@@ -144,27 +141,125 @@ export class Graph {
      *
      * @param filename name of the file in /dataset
      */
-    readSubjects(filename) {
+    async readSubjects(filename) {
+        let count = 0
+
+        const parser = fs.createReadStream(`./dataset/${filename}`)
+            .pipe(parse({ delimiter: ";", fromLine: 2 }))
+
+        for await (const record of parser) {
+            console.log("RECORD SUBJECT: ", record)
+            this.subjectsData.push(record)
+            count++
+        }
+
+        this.totalOfSubjects = count - 1
 
 
-        // fs.createReadStream(`./dataset/${filename}`)
-        //     .pipe(parse({ delimiter: ";", fromLine: 2 }))
-        //     .on('data', (row) => {
-        //         this.subjectsData.push([row])
-        //         this.totalOfSubjects++
-        //     })
-        //     .on('end', () => {
-        //         this.numOfClasses = this.subjectsData.pop()
-        //
-        //         this.numOfClasses.filter((data) => {
-        //             return data !== ""
-        //         })
-        //     })
     }
 
-    run() {
-        this.readTeachers("professores_toy.csv")
-        this.readSubjects("disciplinas_toy.csv")
+    /**
+     * Clean all unused data in data structures
+     */
+    cleanData() {
+
+        const filteredTeachers = this.teachers.filter(value => {
+            return value !== ""
+        })
+
+        const filteredSubjects = this.subjects.map(subject => subject.filter(value => value !== ""))
+
+        for (let subject of filteredSubjects) {
+            if (subject.length === 0) {
+                filteredSubjects.splice(filteredSubjects.indexOf(subject), 1)
+            }
+        }
+
+        const totalClasses = this.subjectsData.pop().find(el => el != "")
+        const convertedTotalClasses = parseInt(totalClasses)
+
+        this.teachers = filteredTeachers
+        this.subjects = filteredSubjects
+        this.numOfClasses = convertedTotalClasses
+
+    }
+
+    /**
+     * Set the key/value of each teacher and subject
+     */
+    setTeachersAndSubjectsIndexes() {
+        for (let i = 0; i < this.teachers.length; i++) {
+            this.teachersIndex[i + 1] = [this.teachers[i], this.subjectsOffered[i], this.subjects[i]]
+        }
+
+        const subjectsCopies = this.subjects.slice()
+
+        for (let j = this.teachers.length + 1; j < this.numVet - 1; j++) {
+            for (const subject of subjectsCopies) {
+                this.subjectsIndex[j] = subject
+                subjectsCopies.splice(subjectsCopies.indexOf(subject), 1)
+                break
+            }
+        }
+    }
+
+    /**
+     * Set edges from source vertex to teachers
+     */
+    setSourceEdges() {
+        let copy = [0]
+        copy = copy.concat(this.subjectsOffered)
+
+        for (let i = 0; i < this.teachers.length + 1; i++) {
+            let sinkTeacher = i
+            let teacherCapacity = copy[i]
+            this.addEdge(this.matAdj[0][i], sinkTeacher, teacherCapacity)
+        }
+
+        this.matAdj[0][0] = 0
+        this.listAdj[0].pop(0)
+    }
+
+    /**
+     * Set edges from subjects to sink vertex
+     */
+    setSinkEdges() {
+        const sink = this.numVet - 1
+        let subjectsCapacities = []
+        let subjectCapacity = null
+
+        for (const subject of this.subjectsData) {
+            subjectsCapacities.push(subject[2])
+        }
+
+        for (let i = this.teachers.length + 1; i < this.numVet - 1; i++) {
+            let sourceSubject = i
+            for (const capacity of subjectsCapacities) {
+                subjectCapacity = capacity
+                subjectsCapacities.splice(subjectsCapacities.indexOf(capacity), 1)
+                break
+            }
+            this.addEdge(sourceSubject, sink, subjectCapacity)
+        }
+    }
+
+
+    setTeachersToSubjectsEdges() {
+
+    }
+
+    async run() {
+        await this.readTeachers("professores_toy.csv")
+        await this.readSubjects("disciplinas_toy.csv")
+        this.cleanData()
+
+        this.numVet = 2 + this.teachers.length + this.totalOfSubjects
+        this.matAdj = Array(this.numVet).fill(0).map(() => Array(this.numVet).fill(0))
+        this.listAdj = Array(this.numVet).fill([])
+
+        this.setTeachersAndSubjectsIndexes()
+        this.setSourceEdges()
+        this.setSinkEdges()
     }
 }
 
