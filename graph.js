@@ -1,5 +1,6 @@
 import fs from 'fs'
 import {parse} from "csv";
+import { createInterface } from 'readline'
 
 export class Graph {
 
@@ -87,20 +88,19 @@ export class Graph {
      * @param source source vertex
      * @param sink sink vertex
      */
-    removeEdge(source, sink) {
-        if (source < this.numVet && sink < this.numVet) {
-            if (this.matAdj[source][sink] !== 0) {
-                this.matAdj[source][sink] = 0;
+    removeEdge(source, sink, flow) {
 
-                this.listAdj[source].forEach((v, _) => {
-                    return v != sink
-                })
+        for (const edge of this.edgesList) {
+            if (edge[0] === source) {
+                if (edge[1] === sink) {
+                    if (edge[2] === flow) {
+                        this.edgesList.splice(this.edgesList.indexOf(edge), 1)
+                        break
+                    }
+                }
             }
-
-            this.numEdg--
-        } else {
-            console.error("Invalid edge")
         }
+
     }
 
     /**
@@ -128,7 +128,6 @@ export class Graph {
             .pipe(parse({ delimiter: ";", fromLine: 2 }))
 
         for await (const record of parser) {
-            console.log("RECORD: ", record)
             this.teachers.push(record[0])
             this.subjectsOffered.push(record[1])
             this.subjects.push(record.slice(2, 6))
@@ -148,7 +147,6 @@ export class Graph {
             .pipe(parse({ delimiter: ";", fromLine: 2 }))
 
         for await (const record of parser) {
-            console.log("RECORD SUBJECT: ", record)
             this.subjectsData.push(record)
             count++
         }
@@ -192,7 +190,7 @@ export class Graph {
             this.teachersIndex[i + 1] = [this.teachers[i], this.subjectsOffered[i], this.subjects[i]]
         }
 
-        const subjectsCopies = this.subjects.slice()
+        const subjectsCopies = this.subjectsData.slice()
 
         for (let j = this.teachers.length + 1; j < this.numVet - 1; j++) {
             for (const subject of subjectsCopies) {
@@ -201,6 +199,7 @@ export class Graph {
                 break
             }
         }
+
     }
 
     /**
@@ -243,14 +242,41 @@ export class Graph {
         }
     }
 
-
+    /**
+     * Set edges from each teacher to their respective subject
+     */
     setTeachersToSubjectsEdges() {
+        const flow = [0, 3, 5, 8, 10]
+        const teachers = this.teachersIndex
+        const subjects = this.subjectsIndex
+
+        for (const [teacherKey, teacherData] of Object.entries(teachers)) {
+            let totalClassesOffered = 0
+            for (const [subjectKey, subjectData] of Object.entries(subjects)) {
+                if (totalClassesOffered === teachers[teacherKey][2].length) {
+                    break
+                }
+                if (teachers[teacherKey][1] == 0) {
+                    this.awayTeachers.push(teachers[teacherKey][0])
+                }
+                if (teachers[teacherKey][2].includes(subjectData[0])) {
+                    if (subjectData[0] == 'CSI000') {
+                        subjectData[2] = 1
+                    }
+                    this.addEdge(teacherKey, subjectKey, subjectData[2], flow[teachers[teacherKey][2].indexOf(subjectData[0])])
+                }
+            }
+        }
 
     }
 
-    async run() {
-        await this.readTeachers("professores_toy.csv")
-        await this.readSubjects("disciplinas_toy.csv")
+    /**
+     * Set the initial data based on csv files
+     * @returns {Promise<void>}
+     */
+    async setInitialData(teachersFile, subjectsFile) {
+        await this.readTeachers(teachersFile)
+        await this.readSubjects(subjectsFile)
         this.cleanData()
 
         this.numVet = 2 + this.teachers.length + this.totalOfSubjects
@@ -260,6 +286,223 @@ export class Graph {
         this.setTeachersAndSubjectsIndexes()
         this.setSourceEdges()
         this.setSinkEdges()
+        this.setTeachersToSubjectsEdges()
+        this.setEdgesList()
+    }
+
+    /**
+     * BellmanFord algorithm to get the shortest path from s to v
+     * @param s source vertex
+     * @param v sink vertex
+     * @returns {null|*[]}
+     */
+    bellmanFord(s, v) {
+        let dist = Array(this.listAdj.length).fill(9999)
+        let pred = Array(this.listAdj.length).fill(null)
+        let edges = this.edgesList.slice()
+
+        dist[s] = 0
+
+        for (let i = 0; i < this.listAdj.length - 1; i++) {
+            let trade = false
+            for (const [source, sink, flow] of edges) {
+                if (dist[sink] > dist[source] + flow) {
+                    dist[sink] = dist[source] + flow
+                    pred[sink] = source
+                    trade = true
+                }
+            }
+            if(trade === false) {
+                break
+            }
+        }
+
+        let shortestPath = [v]
+        let i = pred[v]
+        while (i in pred) {
+            if (i === null) {
+                break
+            }
+
+            shortestPath.push(i)
+            i = pred[i]
+        }
+
+        if (shortestPath.length === 1) {
+            return null
+        }
+
+        shortestPath.reverse()
+
+        return shortestPath
+    }
+
+    /**
+     * Get the flow that should pass by each vertex
+     * @returns {number[]}
+     */
+    getFlowByVertex() {
+        let b = [this.numOfClasses]
+
+        for (const [teacherKey, teacherData] of Object.entries(this.teachersIndex)) {
+            b.push(parseInt(teacherData[1]))
+        }
+
+        for (const [subjectKey, subjectData] of Object.entries(this.subjectsIndex)) {
+            b.push(parseInt(subjectData[2]))
+        }
+
+        b.push(-this.numOfClasses)
+
+        return b
+    }
+
+    /**
+     * Get the flow and capacity of each edge
+     * @returns {any[][][]}
+     */
+    getFlowAndCapacityOfEachEdge() {
+        let flowOfEdges = Array(this.numVet).fill(0).map(() => Array(this.numVet).fill(0))
+        let capacityOfEdges = Array(this.numVet).fill(0).map(() => Array(this.numVet).fill(0))
+
+        for (let i = 0; i < this.matAdj.length; i++) {
+            for (let j = 0; j < this.matAdj[i].length; j++) {
+                if (this.matAdj[i][j] != 0) {
+                    let [flow, capacity] = this.matAdj[i][j]
+                    flowOfEdges[i][j] = parseInt(flow)
+                    capacityOfEdges[i][j] = parseInt(capacity)
+                }
+            }
+        }
+
+        return [flowOfEdges, capacityOfEdges]
+    }
+
+    /**
+     * Succesful shortest paths algorithm
+     * @param s source vertex
+     * @param t sink vertex
+     * @returns {any[][]}
+     */
+    succesfulShortestPaths(s, t) {
+        let F = Array(this.numVet).fill(0).map(() => Array(this.numVet).fill(0))
+
+        let flowByVertex = this.getFlowByVertex()
+        let [flowOfEdges, capacityOfEdges] = this.getFlowAndCapacityOfEachEdge()
+        let shortestPath = this.bellmanFord(s, t)
+
+        while (shortestPath !== null && flowByVertex[s] !== 0) {
+            let maxFlow = 9999
+            for (let i = 1; i < shortestPath.length; i++) {
+                let u = shortestPath[i - 1]
+                let v = shortestPath[i]
+
+                if (capacityOfEdges[u][v] < maxFlow) {
+                    maxFlow = capacityOfEdges[u][v]
+                }
+            }
+
+            for (let i = 1; i < shortestPath.length; i++) {
+                let u = shortestPath[i - 1]
+                let v = shortestPath[i]
+                F[u][v] += maxFlow
+                capacityOfEdges[u][v] -= maxFlow
+
+                if (capacityOfEdges[u][v] == 0) {
+                    this.matAdj[u][v] = 0
+                    let remove = [u, v, flowOfEdges[u][v]]
+                    this.removeEdge(u, v, flowOfEdges[u][v])
+                }
+
+                if (this.matAdj[v][u] == 0) {
+                    this.matAdj[v][u] = 1
+                    this.edgesList.push([v, u, -flowOfEdges[u][v]])
+                    flowOfEdges[v][u] = -flowOfEdges[u][v]
+                }
+
+                capacityOfEdges[v][u] += maxFlow
+
+                if (F[v][u] != 0) {
+                    F[v][u] -= maxFlow
+                }
+            }
+
+            flowByVertex[s] -= maxFlow
+            flowByVertex[t] += maxFlow
+
+            shortestPath = this.bellmanFord(s, t)
+
+        }
+
+
+        return F
+    }
+
+    /**
+     * Log the final data to user
+     * @param finalMatrix succesfulShortesPath result
+     */
+    formatData(finalMatrix) {
+        let edges = []
+        const costs = [0, 3, 5, 8, 10]
+        let totalCost = 0
+        let totalClasses = 0
+        const teachersKeys = Object.keys(this.teachersIndex)
+        const subjectsKeys = Object.keys(this.subjectsIndex)
+
+        for (let i = 0; i < finalMatrix.length; i++) {
+            for (let j = 0; j < finalMatrix[i].length; j++) {
+                if (finalMatrix[i][j] !== 0) {
+                    if (teachersKeys.includes(String(i)) && subjectsKeys.includes(String(j))) {
+                        edges.push([i, j, finalMatrix[i][j]])
+                    }
+                }
+            }
+        }
+
+
+        for (const [teacher, subject, classes] of edges) {
+            let subjectId = this.subjectsIndex[subject][0]
+            let teacherSubjects = this.teachersIndex[teacher][2]
+            let subjectCost = teacherSubjects.indexOf(subjectId)
+
+            console.log(`\nTeacher: ${this.teachersIndex[teacher][0]},
+             Subject: ${subjectId},
+             Name: ${this.subjectsIndex[subject][1]},
+             Classes: ${classes},
+             Cost: ${costs[subjectCost] * classes}
+             `)
+            totalCost += costs[subjectCost] * classes
+            totalClasses += classes
+        }
+
+        console.log(`The total cost was ${totalCost}`)
+        console.log(`Total classes allocated: ${totalClasses}`)
+
+        if (this.awayTeachers.length !== 0) {
+            this.awayTeachers = [...new Set(this.awayTeachers)]
+            console.log(`This teachers dont offer any subject: ${this.awayTeachers}`)
+        } else {
+            console.log(`All teachers offer at least one subject`)
+        }
+
+    }
+
+    async menu() {
+        console.log("\nWelcome to the DECSI JavaScript resource allocation!")
+
+        console.log("\nNow, you gonna se the original allocation: ")
+
+        await this.run("professores.csv", "disciplinas.csv")
+    }
+
+    /**
+     * Script main function
+     * @returns {Promise<void>}
+     */
+    async run(teachersFile, subjectsFile) {
+        await this.setInitialData(teachersFile, subjectsFile)
+        this.formatData(this.succesfulShortestPaths(0, this.numVet -1))
     }
 }
 

@@ -2,4 +2,5 @@ import {Graph} from "./graph.js";
 
 const graph = new Graph()
 
-graph.run()
+graph.menu()
+    .then(r => console.log("Ended."))
