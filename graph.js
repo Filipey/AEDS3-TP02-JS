@@ -261,9 +261,11 @@ export class Graph {
                 }
                 if (teachers[teacherKey][2].includes(subjectData[0])) {
                     if (subjectData[0] == 'CSI000') {
-                        subjectData[2] = 1
+                        this.addEdge(teacherKey, subjectKey, 1, flow[teachers[teacherKey][2].indexOf(subjectData[0])])
+                    } else {
+                        this.addEdge(teacherKey, subjectKey, 2, flow[teachers[teacherKey][2].indexOf(subjectData[0])])
                     }
-                    this.addEdge(teacherKey, subjectKey, subjectData[2], flow[teachers[teacherKey][2].indexOf(subjectData[0])])
+
                 }
             }
         }
