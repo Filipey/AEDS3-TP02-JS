@@ -451,6 +451,15 @@ export class Graph {
         let totalClasses = 0
         const teachersKeys = Object.keys(this.teachersIndex)
         const subjectsKeys = Object.keys(this.subjectsIndex)
+        const table = [
+            {
+                Teacher: null,
+                Subject: null,
+                Name: null,
+                Classes: null,
+                Cost: null
+            }
+        ]
 
         for (let i = 0; i < finalMatrix.length; i++) {
             for (let j = 0; j < finalMatrix[i].length; j++) {
@@ -462,22 +471,26 @@ export class Graph {
             }
         }
 
-
         for (const [teacher, subject, classes] of edges) {
             let subjectId = this.subjectsIndex[subject][0]
             let teacherSubjects = this.teachersIndex[teacher][2]
             let subjectCost = teacherSubjects.indexOf(subjectId)
 
-            console.log(`\nTeacher: ${this.teachersIndex[teacher][0]},
-             Subject: ${subjectId},
-             Name: ${this.subjectsIndex[subject][1]},
-             Classes: ${classes},
-             Cost: ${costs[subjectCost] * classes}
-             `)
+            table.push(
+                {
+                    Teacher: this.teachersIndex[teacher][0],
+                    Subject: subjectId,
+                    Name: this.subjectsIndex[subject][1],
+                    Classes: classes,
+                    Cost: costs[subjectCost] * classes
+                })
+
             totalCost += costs[subjectCost] * classes
             totalClasses += classes
         }
 
+        table.splice(0, 1)
+        console.table(table)
         console.log(`The total cost was ${totalCost}`)
         console.log(`Total classes allocated: ${totalClasses}`)
 
