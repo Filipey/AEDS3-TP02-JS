@@ -1,6 +1,5 @@
 import fs from 'fs'
-import {parse} from "csv";
-import { createInterface } from 'readline'
+import { parse } from "csv";
 
 export class Graph {
 
